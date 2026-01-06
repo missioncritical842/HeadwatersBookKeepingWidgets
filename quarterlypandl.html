@@ -470,9 +470,25 @@
            transactionDate = new Date(dateVal);
         }
 
-        if (isNaN(transactionDate.getTime())) return false; 
+        if (isNaN(transactionDate.getTime())) {
+            console.warn("Invalid date:", dateVal);
+            return false;
+        }
+
+        const isMatch = transactionDate >= firstDayOfPreviousQuarter && transactionDate <= lastDayOfPreviousQuarter;
         
-        return transactionDate >= firstDayOfPreviousQuarter && transactionDate <= lastDayOfPreviousQuarter;
+        // Debug first few failures to see why they are failing
+        // Only log if we haven't found a match yet and it's one of the first few
+        if (!isMatch && Math.random() < 0.01) {
+            console.log("Date mismatch:", {
+                val: dateVal,
+                parsed: transactionDate.toISOString(),
+                start: firstDayOfPreviousQuarter.toISOString(),
+                end: lastDayOfPreviousQuarter.toISOString()
+            });
+        }
+        
+        return isMatch;
       });
 
       if (filteredRecords.length === 0) {
