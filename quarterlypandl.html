@@ -1,4 +1,5 @@
 <!-- Profit and Loss Statement Widget with Detailed Account Breakdown and Totals -->
+<!-- API-enabled Version: Accesses 'Bank_Transactions' table directly -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -193,8 +194,6 @@
           <th>Account</th>
           <th>Amount</th>
         </tr>
-        <!-- Income accounts will be listed here -->
-        <!-- Total Income row will be appended here -->
       </table>
     </div>
     
@@ -206,8 +205,6 @@
           <th>Account</th>
           <th>Amount</th>
         </tr>
-        <!-- Expense accounts will be listed here -->
-        <!-- Total Expenses row will be appended here -->
       </table>
     </div>
     
@@ -222,6 +219,21 @@
   
   <!-- JavaScript Section -->
   <script>
+    // --- Constants ---
+    // The name of the table containing transactions.
+    // Ensure this matches your Grist table name EXACTLY.
+    const TRANSACTIONS_TABLE = "Bank_Transactions";
+
+    // Expected column names in Bank_Transactions
+    const COL_AMOUNT = "Amount";
+    const COL_DATE = "Transaction_Date";
+    const COL_TYPE = "Account_Type_Name";
+    // Hierarchy columns (assumed to be available in Bank_Transactions, e.g. via formulas)
+    const COL_ACC_1 = "Accounts_1";
+    const COL_ACC_2 = "Accounts_2";
+    const COL_ACC_3 = "Accounts_3";
+    const COL_ACC_4 = "Accounts_4";
+
     // Function to handle additional text input
     function handleAdditionalText() {
       const input = document.getElementById('additionalTextInput').value.trim();
@@ -233,7 +245,7 @@
         additionalTextContent.classList.remove('hasContent');
       }
     }
-    // Add event listener for input field when DOM is fully loaded
+    
     document.addEventListener('DOMContentLoaded', function() {
       const additionalTextInput = document.getElementById('additionalTextInput');
       if (additionalTextInput) {
@@ -241,109 +253,44 @@
       }
     });
 
-    // Initialize the widget with required column mappings
+    // Initialize Grist with full access to fetch tables
     grist.ready({
-      columns: [
-        {
-          name: "Amount",                // The transaction amount
-          title: "Transaction Amount",   // Friendly name for mapping
-          type: "Numeric",               // Ensure it's a numeric column
-          optional: false,
-          description: "The amount of the transaction."
-        },
-        {
-          name: "Account_Type_Name",      // The account type name (Income/Expense)
-          title: "Account Type",          // Friendly name for mapping
-          type: "Text",                   // Text type
-          optional: false,
-          description: "Type of the account: Income or Expense."
-        },
-        {
-          name: "Account",                // The account name
-          title: "Account",               // Friendly name for mapping
-          type: "Ref",                    // Reference type
-          optional: false,
-          description: "The account associated with the transaction."
-        },
-        {
-          name: "Transaction_Date",       // The date of the transaction
-          title: "Transaction Date",
-          type: "Date",                   // Date type
-          optional: false,
-          description: "The date of the transaction."
-        },
-        {
-          name: "Accounts_1",             // Hierarchical account level 1
-          title: "Accounts 1",
-          type: "Text",                   // Assuming it's a text field; adjust if different
-          optional: true,
-          description: "Top-level account in the hierarchy."
-        },
-        {
-          name: "Accounts_2",             // Hierarchical account level 2
-          title: "Accounts 2",
-          type: "Text",
-          optional: true,
-          description: "Second-level account in the hierarchy."
-        },
-        {
-          name: "Accounts_3",             // Hierarchical account level 3
-          title: "Accounts 3",
-          type: "Text",
-          optional: true,
-          description: "Third-level account in the hierarchy."
-        },
-        {
-          name: "Accounts_4",             // Hierarchical account level 4
-          title: "Accounts 4",
-          type: "Text",
-          optional: true,
-          description: "Fourth-level account in the hierarchy."
-        }
-      ],
-      requiredAccess: 'read table'
+      requiredAccess: 'full'
     });
 
     // Function to build hierarchical account structure
     function buildHierarchy(records, accountType) {
       const hierarchy = {};
       records.forEach(record => {
-        // Ensure the record matches the desired account type (Income or Expense)
-        if (record['Account_Type_Name'] && record['Account_Type_Name'].trim().toLowerCase() === accountType.toLowerCase()) {
-          const amount = parseFloat(record.Amount) || 0;
-          const accounts1 = record.Accounts_1 || 'Uncategorized';
-          const accounts2 = record.Accounts_2 || '';
-          const accounts3 = record.Accounts_3 || '';
-          const accounts4 = record.Accounts_4 || '';
-          // Initialize hierarchy levels
+        // Safe access to fields (handle if they are missing/undefined)
+        const type = record[COL_TYPE];
+        if (type && String(type).trim().toLowerCase() === accountType.toLowerCase()) {
+          const amount = parseFloat(record[COL_AMOUNT]) || 0;
+          const accounts1 = record[COL_ACC_1] || 'Uncategorized';
+          const accounts2 = record[COL_ACC_2] || '';
+          const accounts3 = record[COL_ACC_3] || '';
+          const accounts4 = record[COL_ACC_4] || '';
+          
           if (!hierarchy[accounts1]) {
-            hierarchy[accounts1] = {
-              amount: 0,
-              children: {}
-            };
+            hierarchy[accounts1] = { amount: 0, children: {} };
           }
           hierarchy[accounts1].amount += amount;
+          
           if (accounts2) {
             if (!hierarchy[accounts1].children[accounts2]) {
-              hierarchy[accounts1].children[accounts2] = {
-                amount: 0,
-                children: {}
-              };
+              hierarchy[accounts1].children[accounts2] = { amount: 0, children: {} };
             }
             hierarchy[accounts1].children[accounts2].amount += amount;
+            
             if (accounts3) {
               if (!hierarchy[accounts1].children[accounts2].children[accounts3]) {
-                hierarchy[accounts1].children[accounts2].children[accounts3] = {
-                  amount: 0,
-                  children: {}
-                };
+                hierarchy[accounts1].children[accounts2].children[accounts3] = { amount: 0, children: {} };
               }
               hierarchy[accounts1].children[accounts2].children[accounts3].amount += amount;
+              
               if (accounts4) {
                 if (!hierarchy[accounts1].children[accounts2].children[accounts3].children[accounts4]) {
-                  hierarchy[accounts1].children[accounts2].children[accounts3].children[accounts4] = {
-                    amount: 0
-                  };
+                  hierarchy[accounts1].children[accounts2].children[accounts3].children[accounts4] = { amount: 0 };
                 }
                 hierarchy[accounts1].children[accounts2].children[accounts3].children[accounts4].amount += amount;
               }
@@ -354,10 +301,8 @@
       return hierarchy;
     }
 
-    // Function to sort a hierarchy alphabetically
     function sortHierarchy(hierarchy) {
       const sorted = {};
-      // Get sorted keys
       const keys = Object.keys(hierarchy).sort((a, b) => a.localeCompare(b));
       keys.forEach(key => {
         sorted[key] = { ...hierarchy[key] };
@@ -368,7 +313,6 @@
       return sorted;
     }
 
-    // Function to insert hierarchy into table
     function insertHierarchyIntoTable(hierarchy, tableBody, level = 0) {
       const indentClass = `indent-${level}`;
       Object.keys(hierarchy).forEach(account => {
@@ -377,38 +321,70 @@
         const amountCell = row.insertCell(1);
         accountCell.innerHTML = `<span class="${indentClass}">${account}</span>`;
         amountCell.innerText = `$${hierarchy[account].amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-        // If there are child accounts, recurse
+        
         if (hierarchy[account].children && Object.keys(hierarchy[account].children).length > 0) {
-          insertHierarchyIntoTable(hierarchy[account].children, tableBody, Math.min(level + 1, 4)); // Limit indentation to level 4
+          insertHierarchyIntoTable(hierarchy[account].children, tableBody, Math.min(level + 1, 4));
         }
       });
     }
 
-    // Handle data updates
-    grist.onRecords(function(records, mappings) {
-      const plWidget = document.getElementById('pl-statement');
+    async function loadData() {
       const errorMessage = document.getElementById('error-message');
+      
+      try {
+        console.log(`Fetching table: ${TRANSACTIONS_TABLE}`);
+        const data = await grist.docApi.fetchTable(TRANSACTIONS_TABLE);
+        
+        if (!data) {
+          throw new Error(`Table '${TRANSACTIONS_TABLE}' not found or empty.`);
+        }
+
+        // Normalize records: Grist returns {id: [ids], col1: [vals], ...} or array of objects depending on version?
+        // Actually grist.docApi.fetchTable returns an object with columns as keys and arrays of values, OR an array of objects?
+        // Let's check docs: it typically returns a list of records: [{id: 1, fields: {...}}, ...] is NOT what fetchTable returns.
+        // fetchTable returns objects: { id: [...], colA: [...], colB: [...] } (Column-oriented)
+        // OR standard JSON list if using the REST API format?
+        // The Plugin API documentation says fetchTable returns: { id: [1, 2], Name: ['A', 'B'] }
+        
+        // We need to convert this column-oriented data to row-oriented for easier processing
+        const records = [];
+        const ids = data.id;
+        if (ids && ids.length) {
+          for (let i = 0; i < ids.length; i++) {
+            const record = { id: ids[i] };
+            // Copy all fields
+            for (const key in data) {
+              if (key !== 'id') {
+                record[key] = data[key][i];
+              }
+            }
+            records.push(record);
+          }
+        }
+        
+        console.log(`Loaded ${records.length} records.`);
+        processRecords(records);
+
+      } catch (err) {
+        console.error("Error loading data:", err);
+        errorMessage.innerText = `Error loading data from table '${TRANSACTIONS_TABLE}'. Check console for details.`;
+      }
+    }
+
+    function processRecords(records) {
       const incomeDetails = document.getElementById('income-details');
       const expenseDetails = document.getElementById('expense-details');
       const netProfitDisplay = document.getElementById('net-profit');
-      const monthSubtitle = document.getElementById('monthSubtitle'); // Get subtitle element
-      
-      errorMessage.innerText = ''; // Clear any previous error messages
-      incomeDetails.innerHTML = `
-        <tr>
-          <th>Account</th>
-          <th>Amount</th>
-        </tr>
-      `; // Reset Income Details Table
-      expenseDetails.innerHTML = `
-        <tr>
-          <th>Account</th>
-          <th>Amount</th>
-        </tr>
-      `; // Reset Expense Details Table
-      netProfitDisplay.innerText = '$0.00'; // Reset Net Profit Display
+      const monthSubtitle = document.getElementById('monthSubtitle');
+      const errorMessage = document.getElementById('error-message');
 
-      // --- MODIFIED SECTION FOR PREVIOUS QUARTER ---
+      // Reset UI
+      errorMessage.innerText = '';
+      incomeDetails.innerHTML = `<tr><th>Account</th><th>Amount</th></tr>`;
+      expenseDetails.innerHTML = `<tr><th>Account</th><th>Amount</th></tr>`;
+      netProfitDisplay.innerText = '$0.00';
+
+      // --- QUARTERLY LOGIC ---
       const today = new Date();
       const currentMonth = today.getMonth(); // 0-11
       const currentYear = today.getFullYear();
@@ -418,34 +394,29 @@
       let previousQuarterYear;
       let quarterName;
 
-      if (currentMonth >= 0 && currentMonth <= 2) { // Current is Q1 (Jan-Mar)
-        // Previous quarter is Q4 of previous year
-        previousQuarterStartMonth = 9; // October (Month 9)
-        previousQuarterEndMonth = 11; // December (Month 11)
+      if (currentMonth >= 0 && currentMonth <= 2) { 
+        previousQuarterStartMonth = 9; 
+        previousQuarterEndMonth = 11; 
         previousQuarterYear = currentYear - 1;
         quarterName = "Q4";
-      } else if (currentMonth >= 3 && currentMonth <= 5) { // Current is Q2 (Apr-Jun)
-        // Previous quarter is Q1 of current year
-        previousQuarterStartMonth = 0; // January (Month 0)
-        previousQuarterEndMonth = 2; // March (Month 2)
+      } else if (currentMonth >= 3 && currentMonth <= 5) { 
+        previousQuarterStartMonth = 0; 
+        previousQuarterEndMonth = 2; 
         previousQuarterYear = currentYear;
         quarterName = "Q1";
-      } else if (currentMonth >= 6 && currentMonth <= 8) { // Current is Q3 (Jul-Sep)
-        // Previous quarter is Q2 of current year
-        previousQuarterStartMonth = 3; // April (Month 3)
-        previousQuarterEndMonth = 5; // June (Month 5)
+      } else if (currentMonth >= 6 && currentMonth <= 8) { 
+        previousQuarterStartMonth = 3; 
+        previousQuarterEndMonth = 5; 
         previousQuarterYear = currentYear;
         quarterName = "Q2";
-      } else { // Current is Q4 (Oct-Dec)
-        // Previous quarter is Q3 of current year
-        previousQuarterStartMonth = 6; // July (Month 6)
-        previousQuarterEndMonth = 8; // September (Month 8)
+      } else { 
+        previousQuarterStartMonth = 6; 
+        previousQuarterEndMonth = 8; 
         previousQuarterYear = currentYear;
         quarterName = "Q3";
       }
 
       const firstDayOfPreviousQuarter = new Date(previousQuarterYear, previousQuarterStartMonth, 1);
-      // To get the last day, go to the first day of the month *after* the end month, then subtract one day
       const lastDayOfPreviousQuarter = new Date(previousQuarterYear, previousQuarterEndMonth + 1, 0); 
 
       const monthNames = ["January", "February", "March", "April", "May", "June",
@@ -458,37 +429,41 @@
       if (monthSubtitle) {
         monthSubtitle.textContent = subtitleText;
       }
-      // --- END OF MODIFIED SECTION ---
 
-      const mapped = grist.mapColumnNames(records, mappings);
-      if (!mapped) {
-        errorMessage.innerText = "Error: Please map all required columns: Transaction Amount, Account Type, Account, and Transaction Date.";
-        return;
-      }
-      
-      let recordsArray = Array.isArray(mapped) ? mapped : [mapped];
+      // Filter Records
+      const filteredRecords = records.filter(record => {
+        const dateVal = record[COL_DATE];
+        if (!dateVal) return false;
+        
+        // Grist often returns dates as timestamps (seconds or ms) or ISO strings
+        // Try to parse
+        let transactionDate;
+        if (typeof dateVal === 'number') {
+           // Grist dates are often seconds since epoch
+           transactionDate = new Date(dateVal * 1000);
+        } else {
+           transactionDate = new Date(dateVal);
+        }
 
-      const filteredRecords = recordsArray.filter(record => {
-        if (!record.Transaction_Date) return false;
-        const transactionDate = new Date(record.Transaction_Date);
-        // Ensure the date is valid before comparison
         if (isNaN(transactionDate.getTime())) return false; 
         
         return transactionDate >= firstDayOfPreviousQuarter && transactionDate <= lastDayOfPreviousQuarter;
       });
 
       if (filteredRecords.length === 0) {
-        errorMessage.innerText = `No transactions found for ${subtitleText}.`; // Use the new subtitleText
+        errorMessage.innerText = `No transactions found for ${subtitleText}.`;
         return;
       }
 
-      // Separate records into Income and Expense
+      // Separate records
       const incomeRecords = [];
       const expenseRecords = [];
+      
       filteredRecords.forEach(record => {
-        if (record['Account_Type_Name'] && record['Account_Type_Name'].trim().toLowerCase() === 'income') {
+        const type = String(record[COL_TYPE] || '').trim().toLowerCase();
+        if (type === 'income') {
           incomeRecords.push(record);
-        } else if (record['Account_Type_Name'] && record['Account_Type_Name'].trim().toLowerCase() === 'expense') {
+        } else if (type === 'expense') {
           expenseRecords.push(record);
         }
       });
@@ -527,8 +502,10 @@
       const expenseTotalAmount = expenseTotalRow.insertCell(1);
       expenseTotalLabel.innerText = 'Total Expenses';
       expenseTotalAmount.innerText = `$${Math.abs(totalExpenses).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-    });
+    }
+
+    // Trigger data load
+    loadData();
   </script>
 </body>
 </html>
-
