@@ -433,6 +433,16 @@
       // Extend the end date to include the full day (23:59:59.999) for comparison if date objects have time
       lastDayOfPreviousQuarter.setHours(23, 59, 59, 999);
 
+      // Helper to format date as YYYY-MM-DD
+      const formatDate = (d) => {
+        return d.getFullYear() + '-' + 
+               String(d.getMonth() + 1).padStart(2, '0') + '-' + 
+               String(d.getDate()).padStart(2, '0');
+      };
+
+      const startStr = formatDate(firstDayOfPreviousQuarter);
+      const endStr = formatDate(lastDayOfPreviousQuarter);
+
       // Debugging Dates
       console.log('Quarter Calculation:', {
         today: today.toISOString(),
@@ -440,8 +450,8 @@
         currentYear,
         quarterName,
         previousQuarterYear,
-        start: firstDayOfPreviousQuarter.toISOString(),
-        end: lastDayOfPreviousQuarter.toISOString()
+        start: startStr,
+        end: endStr
       }); 
 
       const monthNames = ["January", "February", "March", "April", "May", "June",
@@ -455,10 +465,21 @@
         monthSubtitle.textContent = subtitleText;
       }
 
+      // Log first record keys to debug column names
+      if (records.length > 0) {
+        console.log("First record keys:", Object.keys(records[0]));
+        console.log("First record sample:", records[0]);
+      }
+
       // Filter Records
       const filteredRecords = records.filter(record => {
         const dateVal = record[COL_DATE];
-        if (!dateVal) return false;
+        
+        // Log if date is missing
+        if (!dateVal) {
+            console.warn("Record missing date:", record);
+            return false;
+        }
         
         // Grist often returns dates as timestamps (seconds or ms) or ISO strings
         // Try to parse
@@ -475,7 +496,9 @@
             return false;
         }
 
-        const isMatch = transactionDate >= firstDayOfPreviousQuarter && transactionDate <= lastDayOfPreviousQuarter;
+        // Compare using YYYY-MM-DD strings to avoid timezone issues
+        const txStr = formatDate(transactionDate);
+        const isMatch = txStr >= startStr && txStr <= endStr;
         
         // Debug first few failures to see why they are failing
         // Only log if we haven't found a match yet and it's one of the first few
@@ -483,8 +506,9 @@
             console.log("Date mismatch:", {
                 val: dateVal,
                 parsed: transactionDate.toISOString(),
-                start: firstDayOfPreviousQuarter.toISOString(),
-                end: lastDayOfPreviousQuarter.toISOString()
+                txStr: txStr,
+                start: startStr,
+                end: endStr
             });
         }
         
