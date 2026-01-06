@@ -176,7 +176,7 @@
     <!-- Main Heading Split into Two Lines -->
     <h2>
       <span class="line1">Headwaters Christian Resources</span>
-      <span class="line2">Profit and Loss Statement (API View)</span>
+      <span class="line2">Profit and Loss Statement (v2.1)</span>
       <span class="line3" id="monthSubtitle"></span>
     </h2>
     
@@ -334,7 +334,7 @@
       const errorMessage = document.getElementById('error-message');
       
       try {
-        console.log(`Fetching table: ${TRANSACTIONS_TABLE}`);
+        console.log(`[v2.1] Fetching table: ${TRANSACTIONS_TABLE}`);
         const data = await grist.docApi.fetchTable(TRANSACTIONS_TABLE);
         
         if (!data) {
