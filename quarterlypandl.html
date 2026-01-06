@@ -435,9 +435,12 @@
 
       // Helper to format date as YYYY-MM-DD
       const formatDate = (d) => {
-        return d.getFullYear() + '-' + 
-               String(d.getMonth() + 1).padStart(2, '0') + '-' + 
-               String(d.getDate()).padStart(2, '0');
+        // Use UTC methods to avoid timezone shift when formatting
+        // The value from Grist is often 00:00:00 UTC, which becomes previous day in US Timezones
+        // if we use local .getFullYear() etc.
+        return d.getUTCFullYear() + '-' + 
+               String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + 
+               String(d.getUTCDate()).padStart(2, '0');
       };
 
       const startStr = formatDate(firstDayOfPreviousQuarter);
@@ -519,6 +522,14 @@
         errorMessage.innerText = `No transactions found for ${subtitleText}.`;
         return;
       }
+
+      console.log(`Filtered ${filteredRecords.length} records for ${subtitleText}`);
+
+      // Debug Account Types
+      const uniqueTypes = new Set();
+      filteredRecords.forEach(r => uniqueTypes.add(r[COL_TYPE]));
+      console.log("Found Account Types:", Array.from(uniqueTypes));
+      console.log("Sample Record:", filteredRecords[0]);
 
       // Separate records
       const incomeRecords = [];
