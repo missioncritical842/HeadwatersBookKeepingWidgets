@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Donation Receipts (v1.0)</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body {
+      font-family: "Georgia", serif;
+      color: #333;
+      margin: 0;
+      padding: 20px;
+    }
+    .receipt-page {
+      max-width: 800px;
+      margin: 0 auto 40px auto;
+      padding: 40px;
+      border: 1px solid #ddd;
+      background: white;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+      page-break-after: always;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .header h1 {
+      font-size: 24px;
+      margin: 0 0 10px 0;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .header h2 {
+      font-size: 18px;
+      font-weight: normal;
+      color: #555;
+      margin: 0;
+    }
+    .org-address {
+      text-align: center;
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 30px;
+    }
+    .donor-info {
+      margin-bottom: 30px;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .donor-name {
+      font-weight: bold;
+    }
+    .donation-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 30px;
+    }
+    .donation-table th, .donation-table td {
+      border: 1px solid #ddd;
+      padding: 10px;
+      text-align: left;
+    }
+    .donation-table th {
+      background-color: #f5f5f5;
+      font-weight: bold;
+    }
+    .donation-table td.amount {
+      text-align: right;
+    }
+    .total-row td {
+      font-weight: bold;
+      background-color: #fafafa;
+    }
+    .footer {
+      text-align: center;
+      font-size: 12px;
+      color: #777;
+      margin-top: 50px;
+      border-top: 1px solid #eee;
+      padding-top: 20px;
+    }
+    
+    #error-message {
+      color: red;
+      text-align: center;
+      font-weight: bold;
+      margin: 20px;
+    }
+
+    @media print {
+      body {
+        padding: 0;
+        background: none;
+      }
+      .receipt-page {
+        margin: 0;
+        border: none;
+        box-shadow: none;
+        width: 100%;
+        max-width: none;
+        padding: 20px; /* Reduced padding for print */
+      }
+      .receipt-page:last-child {
+        page-break-after: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="receipt-container">
+    <div style="text-align: center; margin-top: 50px; color: #666;">Loading receipts...</div>
+  </div>
+  <div id="error-message"></div>
+
+  <script>
+    grist.ready({
+      columns: [],
+      requiredAccess: 'read table'
+    });
+
+    const TABLE_TRANSACTIONS = "Transaction_Categorization";
+    const TABLE_ACCOUNTS = "Accounts";
+    const TABLE_PEOPLE = "People_Companies";
+
+    // Column Constants
+    // Transactions
+    const COL_TRANS_AMOUNT = "Amount";
+    const COL_TRANS_DATE_CLEARED = "Date_Cleared";
+    const COL_TRANS_DATE_POSTED = "Change_Date_Posted";
+    const COL_TRANS_ACCOUNT_REF = "Account_Long_Name"; // Ref to Accounts
+    const COL_TRANS_FROM_TO = "From_To"; // Ref to People_Companies
+    const COL_TRANS_REF_NUM = "Ref_Number";
+
+    // Accounts
+    const COL_ACC_NAME = "ACCOUNT_NAME";
+    
+    // People
+    const COL_PEOPLE_NAME = "Display_Name";
+    const COL_PEOPLE_STREET1 = "Street1";
+    const COL_PEOPLE_STREET2 = "Street2";
+    const COL_PEOPLE_CITY = "City";
+    const COL_PEOPLE_STATE = "State";
+    const COL_PEOPLE_ZIP = "Zip";
+
+    const TARGET_ACCOUNT_NAME = "Individ, Business Contributions";
+
+    async function loadData() {
+      try {
+        console.log("Fetching data...");
+        const [transData, accData, peopleData] = await Promise.all([
+          grist.docApi.fetchTable(TABLE_TRANSACTIONS),
+          grist.docApi.fetchTable(TABLE_ACCOUNTS),
+          grist.docApi.fetchTable(TABLE_PEOPLE)
+        ]);
+
+        const accRecords = convertToRecords(accData);
+        const peopleRecords = convertToRecords(peopleData);
+        const transRecords = convertToRecords(transData);
+
+        // 1. Find the Account ID for "Individ, Business Contributions"
+        const donationAccount = accRecords.find(a => 
+            a[COL_ACC_NAME] && a[COL_ACC_NAME].trim() === TARGET_ACCOUNT_NAME
+        );
+
+        if (!donationAccount) {
+            throw new Error(`Account "${TARGET_ACCOUNT_NAME}" not found.`);
+        }
+        const donationAccountId = donationAccount.id; // Grist Row ID
+
+        // 2. Index People by ID for fast lookup
+        const peopleMap = {};
+        peopleRecords.forEach(p => {
+            peopleMap[p.id] = p;
+        });
+
+        // 3. Determine Previous Year
+        const today = new Date();
+        const previousYear = today.getFullYear() - 1;
+        // UTC boundaries for the year
+        const startYearVal = new Date(Date.UTC(previousYear, 0, 1)).getTime() / 1000;
+        const endYearVal = new Date(Date.UTC(previousYear, 11, 31, 23, 59, 59)).getTime() / 1000;
+
+        // 4. Filter Transactions
+        // - In previous year
+        // - Account matches donationAccountId
+        // - From_To is present
+        const donations = transRecords.filter(t => {
+            // Check Account
+            if (t[COL_TRANS_ACCOUNT_REF] !== donationAccountId) return false;
+
+            // Check Date
+            let dateVal = t[COL_TRANS_DATE_POSTED];
+            if (!dateVal && dateVal !== 0) dateVal = t[COL_TRANS_DATE_CLEARED];
+            if (Array.isArray(dateVal)) dateVal = dateVal[1];
+            if (!dateVal) return false;
+
+            if (dateVal < startYearVal || dateVal > endYearVal) return false;
+
+            // Check Donor
+            if (!t[COL_TRANS_FROM_TO]) return false;
+
+            return true;
+        });
+
+        if (donations.length === 0) {
+            document.getElementById('receipt-container').innerHTML = 
+                `<div style="text-align: center; margin-top: 50px;">No donations found for ${previousYear} in account "${TARGET_ACCOUNT_NAME}".</div>`;
+            return;
+        }
+
+        // 5. Group by Donor
+        const donorGroups = {};
+        donations.forEach(t => {
+            const donorId = t[COL_TRANS_FROM_TO];
+            if (!donorGroups[donorId]) {
+                donorGroups[donorId] = {
+                    donor: peopleMap[donorId],
+                    transactions: []
+                };
+            }
+            donorGroups[donorId].transactions.push(t);
+        });
+
+        // 6. Generate HTML
+        renderReceipts(donorGroups, previousYear);
+
+      } catch (err) {
+        console.error("Error:", err);
+        document.getElementById('error-message').innerText = "Error: " + err.message;
+      }
+    }
+
+    function renderReceipts(groups, year) {
+        const container = document.getElementById('receipt-container');
+        container.innerHTML = '';
+
+        // Sort donors alphabetically by display name
+        const sortedDonorIds = Object.keys(groups).sort((a, b) => {
+            const nameA = groups[a].donor ? groups[a].donor[COL_PEOPLE_NAME] || '' : '';
+            const nameB = groups[b].donor ? groups[b].donor[COL_PEOPLE_NAME] || '' : '';
+            return nameA.localeCompare(nameB);
+        });
+
+        sortedDonorIds.forEach(donorId => {
+            const group = groups[donorId];
+            const donor = group.donor;
+            if (!donor) return; // Should not happen
+
+            // Sort transactions by date
+            group.transactions.sort((a, b) => {
+                let da = a[COL_TRANS_DATE_POSTED] || a[COL_TRANS_DATE_CLEARED] || 0;
+                let db = b[COL_TRANS_DATE_POSTED] || b[COL_TRANS_DATE_CLEARED] || 0;
+                if (Array.isArray(da)) da = da[1];
+                if (Array.isArray(db)) db = db[1];
+                return da - db;
+            });
+
+            // Calculate Total
+            let total = 0;
+            group.transactions.forEach(t => {
+                total += (parseFloat(t[COL_TRANS_AMOUNT]) || 0);
+            });
+
+            // Create Page
+            const page = document.createElement('div');
+            page.className = 'receipt-page';
+
+            // Build Address Block
+            const street2 = donor[COL_PEOPLE_STREET2] ? `<br>${donor[COL_PEOPLE_STREET2]}` : '';
+            const cityStateZip = `${donor[COL_PEOPLE_CITY] || ''}, ${donor[COL_PEOPLE_STATE] || ''} ${donor[COL_PEOPLE_ZIP] || ''}`;
+            
+            // Build Table Rows
+            const rows = group.transactions.map(t => {
+                let dateVal = t[COL_TRANS_DATE_POSTED] || t[COL_TRANS_DATE_CLEARED];
+                if (Array.isArray(dateVal)) dateVal = dateVal[1];
+                
+                const dateObj = new Date(dateVal * 1000);
+                // UTC formatting
+                const dateStr = dateObj.getUTCFullYear() + '-' + 
+                                String(dateObj.getUTCMonth() + 1).padStart(2, '0') + '-' + 
+                                String(dateObj.getUTCDate()).padStart(2, '0');
+                
+                const amount = parseFloat(t[COL_TRANS_AMOUNT]) || 0;
+                const ref = t[COL_TRANS_REF_NUM] || '';
+
+                return `
+                    <tr>
+                        <td>${dateStr}</td>
+                        <td>${ref}</td>
+                        <td class="amount">$${amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    </tr>
+                `;
+            }).join('');
+
+            page.innerHTML = `
+                <div class="header">
+                    <h1>Headwaters Christian Resources</h1>
+                    <h2>${year} Donation Receipt</h2>
+                </div>
+
+                <div class="org-address">
+                    PO Box 175<br>
+                    Englewood, CO 80151
+                </div>
+
+                <div class="donor-info">
+                    <div class="donor-name">${donor[COL_PEOPLE_NAME] || 'Unknown Donor'}</div>
+                    ${donor[COL_PEOPLE_STREET1] || ''}
+                    ${street2}
+                    <br>${cityStateZip}
+                </div>
+
+                <table class="donation-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Check # / Ref</th>
+                            <th style="text-align: right;">Amount</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${rows}
+                        <tr class="total-row">
+                            <td colspan="2" style="text-align: right;">Total Donations</td>
+                            <td class="amount">$${total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="footer">
+                    Thank you for your generous support of Headwaters Christian Resources.
+                    <br>No goods or services were provided in exchange for this contribution.
+                </div>
+            `;
+
+            container.appendChild(page);
+        });
+    }
+
+    function convertToRecords(data) {
+      const columns = Object.keys(data);
+      if (columns.length === 0) return [];
+      if (Array.isArray(data)) return data;
+
+      const numRows = data.id ? data.id.length : 0;
+      const records = [];
+      for (let i = 0; i < numRows; i++) {
+        const record = { id: data.id[i] };
+        columns.forEach(col => {
+          if (col !== 'id') {
+             record[col] = data[col][i];
+          }
+        });
+        records.push(record);
+      }
+      return records;
+    }
+
+    // Load data
+    loadData();
+  </script>
+</body>
+</html>
