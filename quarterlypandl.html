@@ -254,9 +254,10 @@
     });
 
     // Initialize Grist with full access to fetch tables
+    // Changed to 'read table' as 'full' might be blocked by permissions
     grist.ready({
       columns: [],
-      requiredAccess: 'full'
+      requiredAccess: 'read table'
     });
 
     // Function to build hierarchical account structure
