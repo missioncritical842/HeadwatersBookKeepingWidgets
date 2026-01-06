@@ -292,10 +292,10 @@
                 if (Array.isArray(dateVal)) dateVal = dateVal[1];
                 
                 const dateObj = new Date(dateVal * 1000);
-                // UTC formatting
-                const dateStr = dateObj.getUTCFullYear() + '-' + 
-                                String(dateObj.getUTCMonth() + 1).padStart(2, '0') + '-' + 
-                                String(dateObj.getUTCDate()).padStart(2, '0');
+                // UTC formatting MM/DD/YYYY
+                const dateStr = String(dateObj.getUTCMonth() + 1).padStart(2, '0') + '/' + 
+                                String(dateObj.getUTCDate()).padStart(2, '0') + '/' + 
+                                dateObj.getUTCFullYear();
                 
                 const amount = parseFloat(t[COL_TRANS_AMOUNT]) || 0;
                 const ref = t[COL_TRANS_REF_NUM] || '';
@@ -335,7 +335,7 @@
                     <thead>
                         <tr>
                             <th>Date</th>
-                            <th>Check # / Ref</th>
+                            <th>Check Number</th>
                             <th style="text-align: right;">Amount</th>
                         </tr>
                     </thead>
