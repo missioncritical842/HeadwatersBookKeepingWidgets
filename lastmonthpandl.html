@@ -1,9 +1,10 @@
 <!-- Profit and Loss Statement Widget with Detailed Account Breakdown and Totals -->
+<!-- API-enabled Version: Accesses 'Transaction_Categorization' and related tables directly -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Profit and Loss Statement Widget</title>
+  <title>Profit and Loss Statement (Last Month v2.2)</title>
   
   <!-- External Script -->
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
@@ -175,7 +176,7 @@
     <!-- Main Heading Split into Two Lines -->
     <h2>
       <span class="line1">Headwaters Christian Resources</span>
-      <span class="line2">Profit and Loss Statement</span>
+      <span class="line2">Profit and Loss Statement (Last Month v2.2)</span>
       <span class="line3" id="monthSubtitle"></span>
     </h2>
     
@@ -193,8 +194,6 @@
           <th>Account</th>
           <th>Amount</th>
         </tr>
-        <!-- Income accounts will be listed here -->
-        <!-- Total Income row will be appended here -->
       </table>
     </div>
     
@@ -206,8 +205,6 @@
           <th>Account</th>
           <th>Amount</th>
         </tr>
-        <!-- Expense accounts will be listed here -->
-        <!-- Total Expenses row will be appended here -->
       </table>
     </div>
     
@@ -222,6 +219,40 @@
   
   <!-- JavaScript Section -->
   <script>
+    // Initialize the widget
+    grist.ready({
+      columns: [], // No column mapping needed
+      requiredAccess: 'read table' // We need full table access
+    });
+
+    // Constants for table and column names
+    const TABLE_TRANSACTIONS = "Transaction_Categorization";
+    const TABLE_ACCOUNTS = "Accounts";
+    const TABLE_ACCOUNT_TYPES = "Account_Types";
+    
+    // Column IDs for Transaction_Categorization
+    const COL_TRANS_AMOUNT = "Amount";
+    const COL_TRANS_DATE_CLEARED = "Date_Cleared";
+    const COL_TRANS_DATE_POSTED = "Change_Date_Posted"; // Stored date override
+    const COL_TRANS_ACCOUNT_REF = "Account_Long_Name"; // Ref to Accounts
+
+    // Column IDs for Accounts
+    const COL_ACC_ID = "id"; // Grist Row ID
+    const COL_ACC_ACCOUNT_ID = "ACCOUNT_ID"; // User-defined ID for parenting
+    const COL_ACC_NAME = "ACCOUNT_NAME";
+    const COL_ACC_TYPE_REF = "ACCOUNT_TYPE"; // Ref to Account_Types
+    const COL_ACC_PARENT = "PARENT_ACCOUNT"; // Refers to ACCOUNT_ID
+
+    // Column IDs for Account_Types
+    const COL_TYPE_ID = "id"; // Grist Row ID
+    const COL_TYPE_NAME = "TYPE_NAME";
+
+    // Global variables to store data
+    let transactions = [];
+    let accountsMap = {}; // RowID -> Account Record
+    let accountsByIdMap = {}; // ACCOUNT_ID -> Account Record
+    let accountTypesMap = {}; // RowID -> Type Name
+
     // Function to handle additional text input
     function handleAdditionalText() {
       const input = document.getElementById('additionalTextInput').value.trim();
@@ -233,128 +264,309 @@
         additionalTextContent.classList.remove('hasContent');
       }
     }
-    // Add event listener for input field when DOM is fully loaded
+    
     document.addEventListener('DOMContentLoaded', function() {
       const additionalTextInput = document.getElementById('additionalTextInput');
       if (additionalTextInput) {
         additionalTextInput.addEventListener('input', handleAdditionalText);
       }
     });
-    // Initialize the widget with required column mappings
-    grist.ready({
-      columns: [
-        {
-          name: "Amount",                // The transaction amount
-          title: "Transaction Amount",   // Friendly name for mapping
-          type: "Numeric",               // Ensure it's a numeric column
-          optional: false,
-          description: "The amount of the transaction."
-        },
-        {
-          name: "Account_Type_Name",      // The account type name (Income/Expense)
-          title: "Account Type",          // Friendly name for mapping
-          type: "Text",                   // Text type
-          optional: false,
-          description: "Type of the account: Income or Expense."
-        },
-        {
-          name: "Account",                // The account name
-          title: "Account",               // Friendly name for mapping
-          type: "Ref",                    // Reference type
-          optional: false,
-          description: "The account associated with the transaction."
-        },
-        {
-          name: "Transaction_Date",       // The date of the transaction
-          title: "Transaction Date",
-          type: "Date",                   // Date type
-          optional: false,
-          description: "The date of the transaction."
-        },
-        {
-          name: "Accounts_1",             // Hierarchical account level 1
-          title: "Accounts 1",
-          type: "Text",                   // Assuming it's a text field; adjust if different
-          optional: true,
-          description: "Top-level account in the hierarchy."
-        },
-        {
-          name: "Accounts_2",             // Hierarchical account level 2
-          title: "Accounts 2",
-          type: "Text",
-          optional: true,
-          description: "Second-level account in the hierarchy."
-        },
-        {
-          name: "Accounts_3",             // Hierarchical account level 3
-          title: "Accounts 3",
-          type: "Text",
-          optional: true,
-          description: "Third-level account in the hierarchy."
-        },
-        {
-          name: "Accounts_4",             // Hierarchical account level 4
-          title: "Accounts 4",
-          type: "Text",
-          optional: true,
-          description: "Fourth-level account in the hierarchy."
+
+    // Function to load data from all required tables
+    async function loadData() {
+      const errorMessage = document.getElementById('error-message');
+      try {
+        console.log("Fetching tables...");
+        const [transData, accData, typeData] = await Promise.all([
+          grist.docApi.fetchTable(TABLE_TRANSACTIONS),
+          grist.docApi.fetchTable(TABLE_ACCOUNTS),
+          grist.docApi.fetchTable(TABLE_ACCOUNT_TYPES)
+        ]);
+
+        console.log("Tables fetched. Processing...");
+
+        // Process Account Types
+        const typeRecords = convertToRecords(typeData);
+        typeRecords.forEach(rec => {
+          accountTypesMap[rec.id] = rec[COL_TYPE_NAME];
+        });
+
+        // Process Accounts
+        const accRecords = convertToRecords(accData);
+        accRecords.forEach(rec => {
+          accountsMap[rec.id] = rec;
+          if (rec[COL_ACC_ACCOUNT_ID]) {
+            accountsByIdMap[rec[COL_ACC_ACCOUNT_ID]] = rec;
+          }
+        });
+
+        // Process Transactions
+        const transRecords = convertToRecords(transData);
+        
+        // Map transactions to the format expected by the widget
+        const mappedRecords = transRecords.map(t => {
+          // Resolve Account
+          // t[COL_TRANS_ACCOUNT_REF] is the Row ID in Accounts table
+          const accRef = t[COL_TRANS_ACCOUNT_REF];
+          if (!accRef) return null; // Uncategorized
+
+          const account = accountsMap[accRef]; 
+          if (!account) return null; // Invalid reference
+
+          // Resolve Account Type
+          const typeRef = account[COL_ACC_TYPE_REF];
+          const typeName = accountTypesMap[typeRef];
+
+          if (!typeName) return null; // No type (e.g. Asset/Liability maybe? Or just missing)
+
+          // Resolve Hierarchy
+          const hierarchy = getAccountHierarchy(account);
+
+          // Resolve Date
+          // Prefer Change_Date_Posted (stored), fallback to Date_Cleared (formula/stored)
+          // Dates are seconds since epoch
+          let dateVal = t[COL_TRANS_DATE_POSTED];
+          if (!dateVal && dateVal !== 0) { // Check for null/undefined/empty
+             dateVal = t[COL_TRANS_DATE_CLEARED];
+          }
+
+          return {
+             Amount: t[COL_TRANS_AMOUNT],
+             Account_Type_Name: typeName,
+             Account: account[COL_ACC_NAME],
+             Transaction_Date: dateVal, // Keep as raw value (seconds), format later
+             Accounts_1: hierarchy[0] || null,
+             Accounts_2: hierarchy[1] || null,
+             Accounts_3: hierarchy[2] || null,
+             Accounts_4: hierarchy[3] || null
+          };
+        }).filter(r => r !== null); // Remove invalid records
+
+        console.log(`Loaded ${mappedRecords.length} valid records out of ${transRecords.length} total.`);
+        
+        processRecords(mappedRecords);
+
+      } catch (err) {
+        console.error("Error loading data:", err);
+        errorMessage.innerText = "Error loading data. Check console.";
+      }
+    }
+
+    // Helper to traverse account hierarchy
+    function getAccountHierarchy(account) {
+      const path = [];
+      let current = account;
+      
+      // Safety limit to prevent infinite loops
+      let depth = 0;
+      while (current && depth < 10) {
+        path.unshift(current[COL_ACC_NAME]); // Add to front
+        
+        // Move to parent
+        // PARENT_ACCOUNT column stores the ACCOUNT_ID of the parent
+        const parentId = current[COL_ACC_PARENT];
+        if (parentId) {
+           current = accountsByIdMap[parentId]; // Look up by ACCOUNT_ID
+        } else {
+           current = null;
         }
-      ],
-      requiredAccess: 'read table'
-    });
+        depth++;
+      }
+      return path;
+    }
+
+    // Helper to convert Grist column-oriented data to row-oriented records
+    function convertToRecords(data) {
+      const columns = Object.keys(data);
+      if (columns.length === 0) return [];
+      // If data is array of objects (unlikely for fetchTable but check)
+      if (Array.isArray(data)) return data;
+
+      // data.id is the array of row IDs
+      const numRows = data.id ? data.id.length : 0;
+      const records = [];
+      for (let i = 0; i < numRows; i++) {
+        const record = { id: data.id[i] };
+        columns.forEach(col => {
+          if (col !== 'id') {
+             record[col] = data[col][i];
+          }
+        });
+        records.push(record);
+      }
+      return records;
+    }
+
+    // Main processing function
+    function processRecords(records) {
+      try {
+        const incomeDetails = document.getElementById('income-details');
+        const expenseDetails = document.getElementById('expense-details');
+        const netProfitDisplay = document.getElementById('net-profit');
+        const monthSubtitle = document.getElementById('monthSubtitle');
+        const errorMessage = document.getElementById('error-message');
+
+        errorMessage.innerText = '';
+        incomeDetails.innerHTML = `<tr><th>Account</th><th>Amount</th></tr>`;
+        expenseDetails.innerHTML = `<tr><th>Account</th><th>Amount</th></tr>`;
+        netProfitDisplay.innerText = '$0.00';
+
+        // --- Last Month Logic ---
+        const today = new Date();
+        // 0-indexed month
+        let targetMonth = today.getMonth() - 1;
+        let targetYear = today.getFullYear();
+        
+        if (targetMonth < 0) {
+            targetMonth = 11; // December
+            targetYear -= 1;
+        }
+
+        // Start Date: 1st of target month
+        // Use UTC to ensure we get midnight UTC which corresponds to Grist's date handling
+        const startDate = new Date(Date.UTC(targetYear, targetMonth, 1));
+        
+        // End Date: Last day of target month
+        // Date(year, month + 1, 0) gives the last day of 'month'
+        const endDate = new Date(Date.UTC(targetYear, targetMonth + 1, 0)); 
+        
+        // Month Names
+        const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+        const targetMonthName = monthNames[targetMonth];
+        
+        if (monthSubtitle) {
+          monthSubtitle.textContent = `${targetMonthName} ${targetYear}`;
+        }
+        
+        // Use UTC Timestamps for comparison (seconds)
+        const startVal = startDate.getTime() / 1000;
+        const endVal = endDate.getTime() / 1000 + 86399; // Include full end day (23:59:59)
+
+        console.log("Last Month Calculation:", {
+            targetMonth,
+            targetYear,
+            startStr: startDate.toISOString().split('T')[0],
+            endStr: endDate.toISOString().split('T')[0],
+            startVal,
+            endVal
+        });
+
+        // Filter records
+        const filteredRecords = records.filter(record => {
+          let val = record.Transaction_Date;
+          if (Array.isArray(val)) val = val[1];
+          if (!val) return false;
+          
+          return val >= startVal && val <= endVal;
+        });
+
+        if (filteredRecords.length === 0) {
+          errorMessage.innerText = `No transactions found for ${targetMonthName} ${targetYear}.`;
+          console.log("Zero records matched date filter.");
+          return;
+        }
+
+        // Separate Income and Expense
+        const incomeRecords = [];
+        const expenseRecords = [];
+
+        filteredRecords.forEach(record => {
+          const type = record.Account_Type_Name;
+          if (type && type.trim().toLowerCase() === 'income') {
+            incomeRecords.push(record);
+          } else if (type && type.trim().toLowerCase() === 'expense') {
+            expenseRecords.push(record);
+          }
+        });
+
+        // Build hierarchies
+        const hierarchyIncome = sortHierarchy(buildHierarchy(incomeRecords));
+        const hierarchyExpense = sortHierarchy(buildHierarchy(expenseRecords));
+
+        // Display
+        insertHierarchyIntoTable(hierarchyIncome, incomeDetails);
+        insertHierarchyIntoTable(hierarchyExpense, expenseDetails);
+
+        // Totals
+        let totalIncome = calculateTotal(hierarchyIncome);
+        let totalExpenses = calculateTotal(hierarchyExpense);
+
+        // Calculate Net Profit
+        const netProfit = totalIncome + totalExpenses; 
+        
+        netProfitDisplay.innerText = `$${netProfit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+
+        // Add Totals rows
+        addTotalRow(incomeDetails, "Total Income", totalIncome);
+        addTotalRow(expenseDetails, "Total Expenses", Math.abs(totalExpenses));
+
+      } catch (err) {
+        console.error("Error in processRecords:", err);
+        errorMessage.innerText = "Error processing records: " + err.message;
+      }
+    }
+
+    function calculateTotal(hierarchy) {
+        let total = 0;
+        Object.values(hierarchy).forEach(node => {
+            total += node.amount;
+        });
+        return total;
+    }
+
+    function addTotalRow(table, label, amount) {
+        const row = table.insertRow();
+        row.classList.add('total-row');
+        const labelCell = row.insertCell(0);
+        const amountCell = row.insertCell(1);
+        labelCell.innerText = label;
+        amountCell.innerText = `$${amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
+    }
+
     // Function to build hierarchical account structure
-    function buildHierarchy(records, accountType) {
+    function buildHierarchy(records) {
       const hierarchy = {};
       records.forEach(record => {
-        // Ensure the record matches the desired account type (Income or Expense)
-        if (record['Account_Type_Name'] && record['Account_Type_Name'].trim().toLowerCase() === accountType.toLowerCase()) {
           const amount = parseFloat(record.Amount) || 0;
+          
           const accounts1 = record.Accounts_1 || 'Uncategorized';
           const accounts2 = record.Accounts_2 || '';
           const accounts3 = record.Accounts_3 || '';
           const accounts4 = record.Accounts_4 || '';
+
           // Initialize hierarchy levels
           if (!hierarchy[accounts1]) {
-            hierarchy[accounts1] = {
-              amount: 0,
-              children: {}
-            };
+            hierarchy[accounts1] = { amount: 0, children: {} };
           }
           hierarchy[accounts1].amount += amount;
+
           if (accounts2) {
             if (!hierarchy[accounts1].children[accounts2]) {
-              hierarchy[accounts1].children[accounts2] = {
-                amount: 0,
-                children: {}
-              };
+              hierarchy[accounts1].children[accounts2] = { amount: 0, children: {} };
             }
             hierarchy[accounts1].children[accounts2].amount += amount;
+
             if (accounts3) {
               if (!hierarchy[accounts1].children[accounts2].children[accounts3]) {
-                hierarchy[accounts1].children[accounts2].children[accounts3] = {
-                  amount: 0,
-                  children: {}
-                };
+                hierarchy[accounts1].children[accounts2].children[accounts3] = { amount: 0, children: {} };
               }
               hierarchy[accounts1].children[accounts2].children[accounts3].amount += amount;
+
               if (accounts4) {
                 if (!hierarchy[accounts1].children[accounts2].children[accounts3].children[accounts4]) {
-                  hierarchy[accounts1].children[accounts2].children[accounts3].children[accounts4] = {
-                    amount: 0
-                  };
+                  hierarchy[accounts1].children[accounts2].children[accounts3].children[accounts4] = { amount: 0 };
                 }
                 hierarchy[accounts1].children[accounts2].children[accounts3].children[accounts4].amount += amount;
               }
             }
           }
-        }
       });
       return hierarchy;
     }
+
     // Function to sort a hierarchy alphabetically
     function sortHierarchy(hierarchy) {
       const sorted = {};
-      // Get sorted keys
       const keys = Object.keys(hierarchy).sort((a, b) => a.localeCompare(b));
       keys.forEach(key => {
         sorted[key] = { ...hierarchy[key] };
@@ -364,6 +576,7 @@
       });
       return sorted;
     }
+
     // Function to insert hierarchy into table
     function insertHierarchyIntoTable(hierarchy, tableBody, level = 0) {
       const indentClass = `indent-${level}`;
@@ -373,119 +586,15 @@
         const amountCell = row.insertCell(1);
         accountCell.innerHTML = `<span class="${indentClass}">${account}</span>`;
         amountCell.innerText = `$${hierarchy[account].amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-        // If there are child accounts, recurse
+
         if (hierarchy[account].children && Object.keys(hierarchy[account].children).length > 0) {
-          insertHierarchyIntoTable(hierarchy[account].children, tableBody, Math.min(level + 1, 4)); // Limit indentation to level 4
+          insertHierarchyIntoTable(hierarchy[account].children, tableBody, Math.min(level + 1, 4));
         }
       });
     }
-    // Handle data updates
-    grist.onRecords(function(records, mappings) {
-      const plWidget = document.getElementById('pl-statement');
-      const errorMessage = document.getElementById('error-message');
-      const incomeDetails = document.getElementById('income-details');
-      const expenseDetails = document.getElementById('expense-details');
-      const netProfitDisplay = document.getElementById('net-profit');
-      
-      errorMessage.innerText = ''; // Clear any previous error messages
-      incomeDetails.innerHTML = `
-        <tr>
-          <th>Account</th>
-          <th>Amount</th>
-        </tr>
-      `; // Reset Income Details Table
-      expenseDetails.innerHTML = `
-        <tr>
-          <th>Account</th>
-          <th>Amount</th>
-        </tr>
-      `; // Reset Expense Details Table
-      netProfitDisplay.innerText = '$0.00'; // Reset Net Profit Display
 
-      // Calculate previous month date range
-      const today = new Date();
-      const firstDayOfPreviousMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const lastDayOfPreviousMonth = new Date(today.getFullYear(), today.getMonth(), 0); // Last day of previous month
-
-      // Get previous month name and year
-      const monthNames = ["January", "February", "March", "April", "May", "June",
-                          "July", "August", "September", "October", "November", "December"];
-      const previousMonthName = monthNames[firstDayOfPreviousMonth.getMonth()];
-      const previousMonthYear = firstDayOfPreviousMonth.getFullYear();
-
-      // Update the subtitle
-      const monthSubtitle = document.getElementById('monthSubtitle');
-      if (monthSubtitle) {
-        monthSubtitle.textContent = `${previousMonthName} ${previousMonthYear}`;
-      }
-
-      const mapped = grist.mapColumnNames(records, mappings);
-      if (!mapped) {
-        errorMessage.innerText = "Error: Please map all required columns: Transaction Amount, Account Type, Account, and Transaction Date.";
-        return;
-      }
-      // Filter records to only include transactions from previous month
-      let recordsArray = Array.isArray(mapped) ? mapped : [mapped];
-
-      const filteredRecords = recordsArray.filter(record => {
-        // Ensure the record has a Transaction_Date
-        if (!record.Transaction_Date) return false;
-
-        const transactionDate = new Date(record.Transaction_Date);
-        return transactionDate >= firstDayOfPreviousMonth && transactionDate <= lastDayOfPreviousMonth;
-      });
-
-      if (filteredRecords.length === 0) {
-        errorMessage.innerText = `No transactions found for ${previousMonthName} ${previousMonthYear}.`;
-        return;
-      }
-
-      // Separate records into Income and Expense
-      const incomeRecords = [];
-      const expenseRecords = [];
-      filteredRecords.forEach(record => {
-        if (record['Account_Type_Name'] && record['Account_Type_Name'].trim().toLowerCase() === 'income') {
-          incomeRecords.push(record);
-        } else if (record['Account_Type_Name'] && record['Account_Type_Name'].trim().toLowerCase() === 'expense') {
-          expenseRecords.push(record);
-        }
-      });
-      // Build and sort hierarchies
-      const hierarchyIncome = sortHierarchy(buildHierarchy(incomeRecords, 'Income'));
-      const hierarchyExpense = sortHierarchy(buildHierarchy(expenseRecords, 'Expense'));
-      // Insert Income hierarchy into table
-      insertHierarchyIntoTable(hierarchyIncome, incomeDetails);
-      // Calculate total income
-      let totalIncome = 0;
-      Object.values(hierarchyIncome).forEach(account => {
-        totalIncome += account.amount;
-      });
-      // Insert Expense hierarchy into table
-      insertHierarchyIntoTable(hierarchyExpense, expenseDetails);
-      // Calculate total expenses
-      let totalExpenses = 0;
-      Object.values(hierarchyExpense).forEach(account => {
-        totalExpenses += account.amount;
-      });
-      const netProfit = totalIncome + totalExpenses; // Assuming Expenses are negative
-      // Update Net Profit Display
-      netProfitDisplay.innerText = `$${netProfit.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-      // Add Total Income row
-      const incomeTotalRow = incomeDetails.insertRow();
-      incomeTotalRow.classList.add('total-row');
-      const incomeTotalLabel = incomeTotalRow.insertCell(0);
-      const incomeTotalAmount = incomeTotalRow.insertCell(1);
-      incomeTotalLabel.innerText = 'Total Income';
-      incomeTotalAmount.innerText = `$${totalIncome.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
-      // Add Total Expenses row
-      const expenseTotalRow = expenseDetails.insertRow();
-      expenseTotalRow.classList.add('total-row');
-      const expenseTotalLabel = expenseTotalRow.insertCell(0);
-      const expenseTotalAmount = expenseTotalRow.insertCell(1);
-      expenseTotalLabel.innerText = 'Total Expenses';
-      expenseTotalAmount.innerText = `$${Math.abs(totalExpenses).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`; // Display as positive
-    });
+    // Load data immediately
+    loadData();
   </script>
 </body>
 </html>
-
