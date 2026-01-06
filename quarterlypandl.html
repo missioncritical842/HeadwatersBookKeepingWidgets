@@ -480,7 +480,7 @@
         
         // Log if date is missing
         if (!dateVal) {
-            console.warn("Record missing date:", record);
+            // console.warn("Record missing date:", record);
             return false;
         }
         
@@ -503,18 +503,6 @@
         const txStr = formatDate(transactionDate);
         const isMatch = txStr >= startStr && txStr <= endStr;
         
-        // Debug first few failures to see why they are failing
-        // Only log if we haven't found a match yet and it's one of the first few
-        if (!isMatch) {
-            console.log("Date mismatch:", {
-                val: dateVal,
-                parsed: transactionDate.toISOString(),
-                txStr: txStr,
-                start: startStr,
-                end: endStr
-            });
-        }
-        
         return isMatch;
       });
 
@@ -536,7 +524,12 @@
       const expenseRecords = [];
       
       filteredRecords.forEach(record => {
-        const type = String(record[COL_TYPE] || '').trim().toLowerCase();
+        // Handle "Income" or "Expense" type
+        // Note: Account_Type might be a string or array (if Reference) or object
+        // Based on column listing: Account_Type is a Formula returning string/Any
+        const typeRaw = record[COL_TYPE];
+        const type = String(typeRaw || '').trim().toLowerCase();
+        
         if (type === 'income') {
           incomeRecords.push(record);
         } else if (type === 'expense') {
