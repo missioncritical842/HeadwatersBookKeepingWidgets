@@ -144,6 +144,17 @@
     const TABLE_ACCOUNTS = "Accounts";
     const TABLE_PEOPLE = "People_Companies";
 
+    const TABLE_ORG_SETTINGS = "Organization_Settings";
+    
+    // Org Settings Columns
+    const COL_ORG_NAME = "Org_Name";
+    const COL_ORG_ADDRESS = "Street_Address";
+    const COL_ORG_CITY_STATE_ZIP = "City_State_Zip";
+    const COL_ORG_PHONE = "Phone";
+    const COL_ORG_EMAIL = "Email";
+    const COL_ORG_WEBSITE = "Website";
+
+
     // Column Constants
     // Transactions
     const COL_TRANS_AMOUNT = "Amount";
@@ -169,11 +180,26 @@
     async function loadData() {
       try {
         console.log("Fetching data...");
-        const [transData, accData, peopleData] = await Promise.all([
+        const [transData, accData, peopleData, orgData] = await Promise.all([
           grist.docApi.fetchTable(TABLE_TRANSACTIONS),
           grist.docApi.fetchTable(TABLE_ACCOUNTS),
-          grist.docApi.fetchTable(TABLE_PEOPLE)
+          grist.docApi.fetchTable(TABLE_PEOPLE),
+          grist.docApi.fetchTable(TABLE_ORG_SETTINGS)
         ]);
+
+        
+        const orgRecords = convertToRecords(orgData);
+        const orgSettings = orgRecords.length > 0 ? orgRecords[0] : {};
+        
+        // Default values if missing
+        const orgInfo = {
+            name: orgSettings[COL_ORG_NAME] || "Organization Name",
+            address: orgSettings[COL_ORG_ADDRESS] || "Address Line 1",
+            cityStateZip: orgSettings[COL_ORG_CITY_STATE_ZIP] || "City, State Zip",
+            phone: orgSettings[COL_ORG_PHONE] || "Phone",
+            email: orgSettings[COL_ORG_EMAIL] || "Email",
+            website: orgSettings[COL_ORG_WEBSITE] || "Website"
+        };
 
         const accRecords = convertToRecords(accData);
         const peopleRecords = convertToRecords(peopleData);
@@ -244,7 +270,7 @@
         });
 
         // 6. Generate HTML
-        renderReceipts(donorGroups, previousYear);
+        renderReceipts(donorGroups, previousYear, orgInfo);
 
       } catch (err) {
         console.error("Error:", err);
@@ -252,7 +278,7 @@
       }
     }
 
-    function renderReceipts(groups, year) {
+    function renderReceipts(groups, year, orgInfo) {
         const container = document.getElementById('receipt-container');
         container.innerHTML = '';
 
@@ -316,11 +342,11 @@
 
             page.innerHTML = `
                 <div class="letterhead">
-                    <div class="org-name">Headwaters Christian Resources</div>
+                    <div class="org-name">${orgInfo.name}</div>
                     <div class="org-details">
-                        PO Box 175, Englewood, CO 80151<br>
+                        ${orgInfo.address}, ${orgInfo.cityStateZip}<br>
                         <span class="contact-info">
-                            headwatersresources.org &bull; 720-998-6116 &bull; joe@headwatersresources.org
+                            ${orgInfo.website} &bull; ${orgInfo.phone} &bull; ${orgInfo.email}
                         </span>
                     </div>
                 </div>
@@ -354,7 +380,7 @@
                 </table>
 
                 <div class="footer">
-                    Thank you for your generous support of Headwaters Christian Resources.
+                    Thank you for your generous support of ${orgInfo.name}.
                     <br>No goods or services were provided in exchange for this contribution.
                 </div>
             `;

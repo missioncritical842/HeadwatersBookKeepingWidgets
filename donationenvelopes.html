@@ -111,6 +111,14 @@
     const TABLE_ACCOUNTS = "Accounts";
     const TABLE_PEOPLE = "People_Companies";
 
+    const TABLE_ORG_SETTINGS = "Organization_Settings";
+    
+    // Org Settings Columns
+    const COL_ORG_NAME = "Org_Name";
+    const COL_ORG_ADDRESS = "Street_Address";
+    const COL_ORG_CITY_STATE_ZIP = "City_State_Zip";
+
+
     // Column Constants
     // Transactions
     const COL_TRANS_DATE_CLEARED = "Date_Cleared";
@@ -138,11 +146,22 @@
       
       try {
         console.log("Fetching data...");
-        const [transData, accData, peopleData] = await Promise.all([
+        const [transData, accData, peopleData, orgData] = await Promise.all([
           grist.docApi.fetchTable(TABLE_TRANSACTIONS),
           grist.docApi.fetchTable(TABLE_ACCOUNTS),
-          grist.docApi.fetchTable(TABLE_PEOPLE)
+          grist.docApi.fetchTable(TABLE_PEOPLE),
+          grist.docApi.fetchTable(TABLE_ORG_SETTINGS)
         ]);
+
+        
+        const orgRecords = convertToRecords(orgData);
+        const orgSettings = orgRecords.length > 0 ? orgRecords[0] : {};
+        
+        const orgInfo = {
+            name: orgSettings[COL_ORG_NAME] || "Organization Name",
+            address: orgSettings[COL_ORG_ADDRESS] || "Address Line 1",
+            cityStateZip: orgSettings[COL_ORG_CITY_STATE_ZIP] || "City, State Zip"
+        };
 
         const accRecords = convertToRecords(accData);
         const peopleRecords = convertToRecords(peopleData);
@@ -212,7 +231,7 @@
         statusEl.innerText = `Generating envelopes for ${donors.length} donors...`;
         
         // 6. Render Envelopes
-        renderEnvelopes(donors);
+        renderEnvelopes(donors, orgInfo);
         statusEl.style.display = 'none'; // Hide status when done
 
       } catch (err) {
@@ -223,7 +242,7 @@
       }
     }
 
-    function renderEnvelopes(donors) {
+    function renderEnvelopes(donors, orgInfo) {
         const container = document.getElementById('envelope-container');
         container.innerHTML = '';
 
@@ -239,9 +258,8 @@
 
             envDiv.innerHTML = `
                 <div class="return-address">
-                    <div class="org-name">Headwaters Christian Resources</div>
-                    PO Box 175<br>
-                    Englewood, CO 80151
+                    <div class="org-name">${orgInfo.name}</div>
+                    ${orgInfo.address}<br>${orgInfo.cityStateZip}
                 </div>
                 <div class="recipient-address">
                     <div class="recipient-name">${donor[COL_PEOPLE_NAME] || 'Unknown Name'}</div>

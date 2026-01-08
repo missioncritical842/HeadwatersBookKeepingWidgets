@@ -129,6 +129,7 @@
     const TABLE_TRANSACTIONS = "Transaction_Categorization";
     const TABLE_ACCOUNTS = "Accounts";
     const TABLE_ACCOUNT_TYPES = "Account_Types";
+    const TABLE_ORG_SETTINGS = "Organization_Settings";
     
     // Columns
     const COL_TRANS_AMOUNT = "Amount";
@@ -144,6 +145,7 @@
 
     const COL_TYPE_ID = "id"; 
     const COL_TYPE_NAME = "TYPE_NAME";
+    const COL_ORG_NAME = "Org_Name";
 
     let accountsMap = {}; 
     let accountsByIdMap = {}; 
@@ -158,6 +160,16 @@
           grist.docApi.fetchTable(TABLE_ACCOUNTS),
           grist.docApi.fetchTable(TABLE_ACCOUNT_TYPES)
         ]);
+
+        
+        const orgRecords = convertToRecords(orgData);
+        const orgName = (orgRecords.length > 0 && orgRecords[0][COL_ORG_NAME]) 
+                        ? orgRecords[0][COL_ORG_NAME] 
+                        : "Organization Name";
+        
+        // Update Header
+        const headerEl = document.querySelector('h2 .line1');
+        if (headerEl) headerEl.textContent = orgName;
 
         const typeRecords = convertToRecords(typeData);
         typeRecords.forEach(rec => {
