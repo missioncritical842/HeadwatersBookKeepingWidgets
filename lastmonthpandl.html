@@ -282,7 +282,8 @@
         const [transData, accData, typeData, orgData] = await Promise.all([
           grist.docApi.fetchTable(TABLE_TRANSACTIONS),
           grist.docApi.fetchTable(TABLE_ACCOUNTS),
-          grist.docApi.fetchTable(TABLE_ACCOUNT_TYPES)
+          grist.docApi.fetchTable(TABLE_ACCOUNT_TYPES),
+          grist.docApi.fetchTable(TABLE_ORG_SETTINGS)
         ]);
 
         console.log("Tables fetched. Processing...");
