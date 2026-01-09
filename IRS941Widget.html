@@ -94,8 +94,18 @@
     
     const COL_ACCOUNT_NAME = "ACCOUNT_NAME";
 
-    // 941 Relevant Keywords
-    const KEYWORDS = ["wages", "salary", "salaries", "tax", "withholding", "medicare", "social security", "federal", "payroll"];
+    // 941 Relevant Keywords (Updated based on your chart of accounts)
+    const KEYWORDS = [
+      "payroll expenses", 
+      "payroll liabilities", 
+      "wages", 
+      "salary", 
+      "tax", 
+      "withholding", 
+      "medicare", 
+      "social security", 
+      "federal"
+    ];
 
     // Helper: Convert Grist Columns to Records
     function convertToRecords(data) {
