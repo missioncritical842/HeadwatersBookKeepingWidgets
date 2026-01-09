@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>IRS Form 941 Helper</title>
+  <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
+  <style>
+    body {
+      font-family: sans-serif;
+      padding: 20px;
+      color: #333;
+    }
+    .header {
+      margin-bottom: 20px;
+      border-bottom: 1px solid #ccc;
+      padding-bottom: 10px;
+    }
+    .controls {
+      margin-bottom: 20px;
+      padding: 15px;
+      background: #f5f5f5;
+      border-radius: 4px;
+    }
+    select {
+      font-size: 16px;
+      padding: 5px;
+    }
+    .section {
+      margin-bottom: 30px;
+    }
+    h2 {
+      font-size: 18px;
+      margin-bottom: 10px;
+      color: #2c3e50;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+    }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background-color: #f0f0f0;
+    }
+    td.amount {
+      text-align: right;
+      font-family: monospace;
+    }
+    .total-row {
+      font-weight: bold;
+      background-color: #fafafa;
+    }
+    .highlight {
+      background-color: #e8f4fd;
+    }
+    #error-message {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <h1>IRS Form 941 Helper</h1>
+  </div>
+
+  <div class="controls">
+    <label for="quarter-select"><strong>Select Quarter:</strong></label>
+    <select id="quarter-select"></select>
+    <button onclick="loadData()">Refresh</button>
+  </div>
+
+  <div id="error-message"></div>
+
+  <div id="report-container">
+    <div style="color: #666; font-style: italic;">Select a quarter to view data...</div>
+  </div>
+
+  <script>
+    grist.ready({ columns: [], requiredAccess: 'read table' });
+
+    const TABLE_TRANSACTIONS = "Transaction_Categorization";
+    const TABLE_ACCOUNTS = "Accounts";
+    
+    const COL_TRANS_AMOUNT = "Amount";
+    const COL_TRANS_DATE = "Change_Date_Posted"; // Or Date_Cleared
+    const COL_TRANS_DATE_BACKUP = "Date_Cleared";
+    const COL_TRANS_ACCOUNT = "Account_Long_Name";
+    
+    const COL_ACCOUNT_NAME = "ACCOUNT_NAME";
+
+    // 941 Relevant Keywords
+    const KEYWORDS = ["wages", "salary", "salaries", "tax", "withholding", "medicare", "social security", "federal", "payroll"];
+
+    // Helper: Convert Grist Columns to Records
+    function convertToRecords(data) {
+      const columns = Object.keys(data);
+      if (columns.length === 0) return [];
+      if (Array.isArray(data)) return data;
+      const numRows = data.id ? data.id.length : 0;
+      const records = [];
+      for (let i = 0; i < numRows; i++) {
+        const record = { id: data.id[i] };
+        columns.forEach(col => { if (col !== 'id') record[col] = data[col][i]; });
+        records.push(record);
+      }
+      return records;
+    }
+
+    // Populate Quarter Select
+    function initQuarterSelect() {
+      const select = document.getElementById('quarter-select');
+      const today = new Date();
+      const currentYear = today.getFullYear();
+      const currentMonth = today.getMonth(); // 0-11
+      
+      // Generate last 8 quarters
+      for (let i = 0; i < 8; i++) {
+        // Calculate Q and Year for offset i
+        // Each step back is 3 months
+        const targetDate = new Date(today.getFullYear(), today.getMonth() - (i * 3), 1);
+        const y = targetDate.getFullYear();
+        const m = targetDate.getMonth();
+        const q = Math.floor(m / 3) + 1;
+        
+        const opt = document.createElement('option');
+        opt.value = `${y}-${q}`;
+        opt.text = `Q${q} ${y}`;
+        select.appendChild(opt);
+      }
+      
+      // Default to previous quarter (index 1 usually, unless we are at start of quarter)
+      // Actually, standard logic:
+      // If we are in Q1 (Jan-Mar), we probably want Q4 of prev year.
+      // The loop generates "Current Quarter" at index 0, "Prev Quarter" at index 1.
+      select.selectedIndex = 1; 
+      
+      select.addEventListener('change', loadData);
+    }
+
+    async function loadData() {
+      const errMsg = document.getElementById('error-message');
+      const container = document.getElementById('report-container');
+      errMsg.innerText = '';
+      container.innerHTML = 'Loading...';
+
+      try {
+        const [transData, accData] = await Promise.all([
+          grist.docApi.fetchTable(TABLE_TRANSACTIONS),
+          grist.docApi.fetchTable(TABLE_ACCOUNTS)
+        ]);
+
+        const transactions = convertToRecords(transData);
+        const accounts = convertToRecords(accData);
+
+        // Map Account ID to Name
+        const accountMap = {};
+        accounts.forEach(a => accountMap[a.id] = a[COL_ACCOUNT_NAME]);
+
+        // Get Date Range
+        const selVal = document.getElementById('quarter-select').value;
+        const [yearStr, qStr] = selVal.split('-');
+        const year = parseInt(yearStr);
+        const q = parseInt(qStr);
+
+        // Q1: Jan(0)-Mar(2), Q2: Apr(3)-Jun(5), ...
+        const startMonth = (q - 1) * 3;
+        const endMonth = startMonth + 2;
+        
+        // UTC Timestamps
+        const startTs = new Date(Date.UTC(year, startMonth, 1)).getTime() / 1000;
+        // End of last day of endMonth
+        // Trick: Day 0 of next month is last day of this month
+        const endTs = new Date(Date.UTC(year, endMonth + 1, 0, 23, 59, 59)).getTime() / 1000;
+
+        // Aggregation
+        const accountTotals = {};
+
+        transactions.forEach(t => {
+          // Date Check
+          let d = t[COL_TRANS_DATE];
+          if (!d && d !== 0) d = t[COL_TRANS_DATE_BACKUP];
+          if (Array.isArray(d)) d = d[1];
+          if (!d) return;
+
+          if (d < startTs || d > endTs) return;
+
+          const acctId = t[COL_TRANS_ACCOUNT];
+          const acctName = accountMap[acctId] || "Unknown Account";
+          const amount = parseFloat(t[COL_TRANS_AMOUNT]) || 0;
+
+          if (!accountTotals[acctName]) accountTotals[acctName] = 0;
+          accountTotals[acctName] += amount;
+        });
+
+        // Separate Likely Payroll vs Others
+        const payrollItems = [];
+        const otherItems = [];
+
+        Object.keys(accountTotals).forEach(name => {
+          const amt = accountTotals[name];
+          if (Math.abs(amt) < 0.01) return; // Skip zero
+
+          const lowerName = name.toLowerCase();
+          const match = KEYWORDS.some(k => lowerName.includes(k));
+          const item = { name, amount: amt };
+          
+          if (match) payrollItems.push(item);
+          else otherItems.push(item);
+        });
+
+        // Sort alphabetically
+        payrollItems.sort((a,b) => a.name.localeCompare(b.name));
+        otherItems.sort((a,b) => a.name.localeCompare(b.name));
+
+        // Render
+        let html = '';
+
+        // Helper for table
+        const renderTable = (items, title) => {
+          if (items.length === 0) return `<div class="section"><h2>${title}</h2><p>No matching records found.</p></div>`;
+          
+          let rows = items.map(item => `
+            <tr>
+              <td>${item.name}</td>
+              <td class="amount">$${item.amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            </tr>
+          `).join('');
+
+          const total = items.reduce((sum, item) => sum + item.amount, 0);
+
+          return `
+            <div class="section">
+              <h2>${title}</h2>
+              <table>
+                <thead><tr><th>Account</th><th style="text-align:right">Total</th></tr></thead>
+                <tbody>
+                  ${rows}
+                  <tr class="total-row">
+                    <td>Total</td>
+                    <td class="amount">$${total.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          `;
+        };
+
+        html += renderTable(payrollItems, "Potential 941 Items (Payroll/Tax)");
+        html += renderTable(otherItems, "Other Account Activity (For Reference)");
+
+        container.innerHTML = html;
+
+      } catch (e) {
+        console.error(e);
+        errMsg.innerText = "Error: " + e.message;
+        container.innerHTML = "";
+      }
+    }
+
+    initQuarterSelect();
+    loadData();
+
+  </script>
+</body>
+</html>
