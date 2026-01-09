@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Donation Receipts (v2.5)</title>
+  <title>Donation Receipts (v2.6)</title>
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <style>
     body {
@@ -114,24 +114,24 @@
         box-shadow: none;
         width: 100%;
         max-width: none;
-        padding: 0.25in; /* Further reduced padding for print */
-        page-break-after: always; /* Ensure break */
-        break-inside: avoid; /* Try to keep content together */
-        min-height: auto; /* Allow height to adjust */
-        height: 100%; /* Fill the page */
+        padding: 0.25in; 
+        page-break-after: always;
+        break-inside: avoid;
+        /* Use flex to push footer down even in print */
+        display: flex;
+        flex-direction: column;
+        /* Ensure it takes up roughly full page height minus margins */
+        min-height: 9.5in; 
+        height: auto; 
       }
       .receipt-page:last-child {
         page-break-after: auto;
       }
-      /* Ensure table fits */
       .donation-table {
         width: 100%;
-        margin-left: 0;
-        margin-right: 0;
       }
-      /* Hide footer margin to prevent push */
       .footer {
-        margin-top: 20px; 
+        margin-top: auto; 
       }
     }
   </style>
