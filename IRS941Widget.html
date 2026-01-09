@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>IRS Form 941 Helper (v1.1)</title>
+  <title>IRS Form 941 Helper (v1.2)</title>
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <style>
     body {
@@ -94,17 +94,10 @@
     
     const COL_ACCOUNT_NAME = "ACCOUNT_NAME";
 
-    // 941 Relevant Keywords (Updated based on your chart of accounts)
+    // Strict Keywords for 941
     const KEYWORDS = [
       "payroll expenses", 
-      "payroll liabilities", 
-      "wages", 
-      "salary", 
-      "tax", 
-      "withholding", 
-      "medicare", 
-      "social security", 
-      "federal"
+      "payroll liabilities"
     ];
 
     // Helper: Convert Grist Columns to Records
@@ -145,9 +138,6 @@
       }
       
       // Default to previous quarter (index 1 usually, unless we are at start of quarter)
-      // Actually, standard logic:
-      // If we are in Q1 (Jan-Mar), we probably want Q4 of prev year.
-      // The loop generates "Current Quarter" at index 0, "Prev Quarter" at index 1.
       select.selectedIndex = 1; 
       
       select.addEventListener('change', loadData);
@@ -185,7 +175,6 @@
         // UTC Timestamps
         const startTs = new Date(Date.UTC(year, startMonth, 1)).getTime() / 1000;
         // End of last day of endMonth
-        // Trick: Day 0 of next month is last day of this month
         const endTs = new Date(Date.UTC(year, endMonth + 1, 0, 23, 59, 59)).getTime() / 1000;
 
         // Aggregation
@@ -208,9 +197,8 @@
           accountTotals[acctName] += amount;
         });
 
-        // Separate Likely Payroll vs Others
+        // Filter for Payroll Items ONLY
         const payrollItems = [];
-        const otherItems = [];
 
         Object.keys(accountTotals).forEach(name => {
           const amt = accountTotals[name];
@@ -218,22 +206,21 @@
 
           const lowerName = name.toLowerCase();
           const match = KEYWORDS.some(k => lowerName.includes(k));
-          const item = { name, amount: amt };
           
-          if (match) payrollItems.push(item);
-          else otherItems.push(item);
+          if (match) {
+            payrollItems.push({ name, amount: amt });
+          }
         });
 
         // Sort alphabetically
         payrollItems.sort((a,b) => a.name.localeCompare(b.name));
-        otherItems.sort((a,b) => a.name.localeCompare(b.name));
 
         // Render
         let html = '';
 
         // Helper for table
         const renderTable = (items, title) => {
-          if (items.length === 0) return `<div class="section"><h2>${title}</h2><p>No matching records found.</p></div>`;
+          if (items.length === 0) return `<div class="section"><h2>${title}</h2><p>No matching payroll records found.</p></div>`;
           
           let rows = items.map(item => `
             <tr>
@@ -261,8 +248,7 @@
           `;
         };
 
-        html += renderTable(payrollItems, "Potential 941 Items (Payroll/Tax)");
-        html += renderTable(otherItems, "Other Account Activity (For Reference)");
+        html += renderTable(payrollItems, "Payroll Expenses & Liabilities");
 
         container.innerHTML = html;
 
