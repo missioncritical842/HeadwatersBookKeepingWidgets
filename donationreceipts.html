@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Donation Receipts (v2.9)</title>
+  <title>Donation Receipts (v2.10)</title>
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <style>
     body {
@@ -87,6 +87,13 @@
     .total-row td {
       font-weight: bold;
       background-color: #fafafa;
+    }
+    .thank-you {
+        margin-top: 20px;
+        text-align: center;
+        font-size: 14px;
+        line-height: 1.5;
+        color: #333;
     }
     .footer {
       text-align: center;
@@ -388,9 +395,12 @@
                     </tbody>
                 </table>
 
-                <div class="footer">
+                <div class="thank-you">
                     Thank you for your generous support of ${orgInfo.name}.
-                    <br>Your donation is received and used for religious/charitable purposes.
+                </div>
+
+                <div class="footer">
+                    Your donation is received and used for religious/charitable purposes.
                     <br>No goods or services were provided in exchange for this contribution.
                 </div>
             `;
