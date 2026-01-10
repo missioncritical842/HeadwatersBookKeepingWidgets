@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Payroll Filings Helper (v1.8)</title>
+  <title>Payroll Filings Helper (v1.9)</title>
   <script src="https://docs.getgrist.com/grist-plugin-api.js"></script>
   <style>
     body {
@@ -209,47 +209,13 @@
         // End of last day of endMonth
         const endTs = new Date(Date.UTC(year, endMonth + 1, 0, 23, 59, 59)).getTime() / 1000;
 
-        // Aggregation
-        const accountTotals = {};
-
-        transactions.forEach(t => {
-          // Date Check
-          let d = t[COL_TRANS_DATE];
-          if (!d && d !== 0) d = t[COL_TRANS_DATE_BACKUP];
-          if (Array.isArray(d)) d = d[1];
-          if (!d) return;
-
-          if (d < startTs || d > endTs) return;
-
-          const acctId = t[COL_TRANS_ACCOUNT];
-          const acctName = accountMap[acctId] || "Unknown Account";
-          const amount = parseFloat(t[COL_TRANS_AMOUNT]) || 0;
-
-          if (!accountTotals[acctName]) accountTotals[acctName] = 0;
-          accountTotals[acctName] += amount;
-        });
-
-        // Filter for Payroll Items ONLY
-        const payrollItems = [];
+        // Process Payroll Expenses by payee
+        const payrollPayeeTotals = {};
         
         // Process 1099-NEC Expenses (blessing gift) by recipient
         const necRecipientTotals = {};
         
-        // First, process payroll items from accountTotals
-        Object.keys(accountTotals).forEach(name => {
-          const amt = accountTotals[name];
-          if (Math.abs(amt) < 0.01) return; // Skip zero
-
-          const lowerName = name.toLowerCase();
-          
-          // Check for payroll keywords
-          const payrollMatch = KEYWORDS.some(k => lowerName.includes(k));
-          if (payrollMatch) {
-            payrollItems.push({ name, amount: amt });
-          }
-        });
-
-        // Process 1099-NEC transactions by recipient
+        // Process transactions directly
         transactions.forEach(t => {
           // Date Check
           let d = t[COL_TRANS_DATE];
@@ -261,25 +227,44 @@
 
           const acctId = t[COL_TRANS_ACCOUNT];
           const acctName = accountMap[acctId] || "Unknown Account";
-          
-          // Check if this is a blessing gift transaction
-          if (!acctName.toLowerCase().includes("blessing gift")) return;
-          
           const amount = parseFloat(t[COL_TRANS_AMOUNT]) || 0;
           if (Math.abs(amount) < 0.01) return; // Skip zero
           
-          // Get recipient ID from From_To field (reference to People_Companies)
-          const recipientId = t[COL_FROM_TO];
-          if (!recipientId) return; // Skip if no recipient
+          const lowerName = acctName.toLowerCase();
           
-          // Look up recipient name from People_Companies
-          const recipient = peopleMap[recipientId] || "Unknown Recipient";
+          // Check for payroll keywords
+          const payrollMatch = KEYWORDS.some(k => lowerName.includes(k));
           
-          if (!necRecipientTotals[recipient]) {
-            necRecipientTotals[recipient] = 0;
+          // Check if this is a blessing gift transaction
+          const isBlessingGift = lowerName.includes("blessing gift");
+          
+          // Get payee/recipient ID from From_To field (reference to People_Companies)
+          const payeeId = t[COL_FROM_TO];
+          
+          if (payrollMatch && payeeId) {
+            // Process payroll transaction by payee
+            const payeeName = peopleMap[payeeId] || "Unknown Payee";
+            
+            if (!payrollPayeeTotals[payeeName]) {
+              payrollPayeeTotals[payeeName] = 0;
+            }
+            payrollPayeeTotals[payeeName] += amount;
+          } else if (isBlessingGift && payeeId) {
+            // Process 1099-NEC transaction by recipient
+            const recipientName = peopleMap[payeeId] || "Unknown Recipient";
+            
+            if (!necRecipientTotals[recipientName]) {
+              necRecipientTotals[recipientName] = 0;
+            }
+            necRecipientTotals[recipientName] += amount;
           }
-          necRecipientTotals[recipient] += amount;
         });
+
+        // Convert payroll payee totals to array
+        const payrollItems = Object.keys(payrollPayeeTotals).map(payee => ({
+          name: payee,
+          amount: payrollPayeeTotals[payee]
+        }));
 
         // Convert recipient totals to array
         const necItems = Object.keys(necRecipientTotals).map(recipient => ({
@@ -324,7 +309,7 @@
           `;
         };
 
-        html += renderTable(payrollItems, "Payroll Expenses & Liabilities");
+        html += renderTable(payrollItems, "Payroll Expenses & Liabilities", "Payee");
         html += renderTable(necItems, "1099-NEC Expenses", "Recipient");
 
         container.innerHTML = html;
