@@ -447,7 +447,7 @@
               <div class="data-field recipient-tin">${formattedTIN}</div>
               
               <!-- Box 1 - Nonemployee Compensation -->
-              <div class="data-field box1-amount">$${amount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
+              <div class="data-field box1-amount">$${Math.abs(amount).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
               
               <!-- Tax Year -->
               <div class="data-field tax-year-value">${taxYear}</div>
